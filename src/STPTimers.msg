@@ -21,13 +21,11 @@ message STPTimer { }
 message STPStartProtocol extends STPTimer { }
 message STPHelloTimer extends STPTimer { }
 message STPForwardTimer extends STPTimer { }
-message STPMaxAgeTimer extends STPTimer { }
+message STPBPDUTTLTimer extends STPTimer { }
 message STPHoldTimer extends STPTimer {
     int port;
 }
-message STPMigrateTimer extends STPTimer {
-    int port;
-}
+
 message STPPortEdgeTimer extends STPTimer {
     int port;
 }

@@ -49,7 +49,8 @@ simple MACRelayUnitSTPNP like MACRelayUnit
         string bridgeAddress = default("auto"); // bridge mac address (automatic)
         int priority = default(32768);     // bridge priority (0x8000 default value)
         double helloTime = default(2);     // hello time delay (default 2 sec)
-        double maxAge    = default(6);    // max age of a BPDU  (6 sec default for RSTP)
+        double maxAge    = default(20);    // max age of a BPDU  (20 sec or hops default for RSTP). BPDU TimeToLive
+        double bpduTimeout  = default(6);  // BPDU timeout to considers the root port lost (default 6 sec for RSTP) 
         double forwardDelay = default(14); // time taken to get a port into a forwarding mode (14 sec default)
         double holdTime  = default(1);     // hold time to avoid rate excess limit of BPDUs in a port (1s default)
         double migrateDelay = default(3);  // migration delay for negotiate the port migration 

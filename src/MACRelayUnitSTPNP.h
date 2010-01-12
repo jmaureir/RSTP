@@ -212,13 +212,15 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 
 	// timer messages
 	cMessage* hello_timer;
-	cMessage* max_age_timer;
+	cMessage* bpdu_timeout_timer;
 
 	// STP parameters
 	BridgeID bridge_id;         // bridge id
 	simtime_t power_on_time;    // time where the bridge starts its operation
 	simtime_t topology_change_timeout; // time where the STP flags the BPDU as topology change
 	simtime_t original_mac_aging_time; // original mac aging delay
+	int bpdu_timeout;                  // time without receiving a bpdu from the root bridge
+	                                   // and considers the root port lost
 
 	bool active;                       // Protocol is active
 	bool allSynced;                    // RSTP synced ports to allow fast transitions
@@ -235,7 +237,8 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	void setPortStatus(int port_idx, PortStatus status);
 	void scheduleHoldTimer(int port);
 	void scheduleHelloTimer();
-	void restartMaxAgeTimer();
+	void restartBPDUTTLTimer();
+	void cancelBPDUTTLTimer();
 	BPDU* getNewBPDU(BPDUType type); // BPDU factory
 
 	void flushMACAddressesOnPort(int port_idx);
