@@ -578,14 +578,6 @@ void MACRelayUnitSTPNP::handleBPDU(BPDU* bpdu) {
 		return;
 	}
 
-
-	// cancel and clear the Port Edge if it exists
-	if (this->port_status[arrival_port].isPortEdgeTimerActive()) {
-		EV << "  Canceling port edge timer" << endl;
-		cancelEvent(this->port_status[arrival_port].getPortEdgeTimer());
-		this->port_status[arrival_port].clearPortEdgeTimer();
-	}
-
 	// if port is in listening mode, set it in learning mode, since there is a bridge connected
 	if (this->port_status[arrival_port].state == LISTENING) {
 		EV << "changing port " << arrival_port << " to learning state since there is a bridge connected" << endl;
