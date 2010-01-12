@@ -20,7 +20,9 @@ message STPTimer { }
 
 message STPStartProtocol extends STPTimer { }
 message STPHelloTimer extends STPTimer { }
-message STPForwardTimer extends STPTimer { }
+message STPForwardTimer extends STPTimer { 
+	int port;
+}
 message STPBPDUTTLTimer extends STPTimer { }
 message STPHoldTimer extends STPTimer {
     int port;

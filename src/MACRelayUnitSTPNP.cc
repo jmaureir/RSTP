@@ -401,6 +401,7 @@ void MACRelayUnitSTPNP::handleMessage(cMessage* msg) {
 		} else {
 			this->processFrame(msg);
 		}
+		return;
 	} else {
 		if (this->active) {
 			if (dynamic_cast<EtherFrame*>(msg)) {
@@ -458,111 +459,131 @@ void MACRelayUnitSTPNP::handleIncomingFrame(EtherFrame *msg) {
 	}
 }
 
-
 void MACRelayUnitSTPNP::handleTimer(cMessage* msg) {
 	if (dynamic_cast<STPStartProtocol*>(msg)) {
-		this->active = true;
-
-		EV << "Starting (or Restarting) RSTP Protocol." << endl;
-
-		this->message_age = 0;
-		this->priority_vector = PriorityVector(this->bridge_id,0,this->bridge_id,0);
-
-		EV << "I'm the ROOT Bridge: Priority Vector: " << this->priority_vector << endl;
-
-		this->setAllPortsStatus(PortStatus(LISTENING,DESIGNATED_PORT));
-		this->cancelBPDUTTLTimer();
-		this->sendConfigurationBPDU();
-		this->scheduleHelloTimer();
-
-		delete(msg);
+		this->handleSTPStartTimer(check_and_cast<STPStartProtocol*>(msg));
 	} else if (dynamic_cast<STPHelloTimer*>(msg)) {
-		EV << "Hello Timer arrived" << endl;
-		this->sendConfigurationBPDU();
-		// schedule the timer again to the hello time
-		this->scheduleHelloTimer();
-
+		this->handleSTPHelloTimer(check_and_cast<STPHelloTimer*>(msg));
 	} else if (dynamic_cast<STPForwardTimer*>(msg)) {
-		int port = msg->getKind();
-		EV << "Forward timer arrived for port " << port << endl;
-
-		if (this->port_status[port].state == LISTENING) {
-			EV << "Port transition from LISTENING to LEARNING" << endl;
-			this->setPortStatus(port, PortStatus(LEARNING,this->port_status[port].role));
-		}
-		if (this->port_status[port].state == LEARNING) {
-			EV << "Port transition from LEARNING to FORWARDING" << endl;
-			this->setPortStatus(port, PortStatus(FORWARDING,this->port_status[port].role));
-		}
-
-		// check topology change
-		if (this->priority_vector.root_id != this->bridge_id) {
-			// if i'm not the root.
-			if (port!=this->getRootPort()) {
-				// send the TCN  via the root port informing "port" have change state
-				this->sendTopologyChangeNotificationBPDU(port);
-			} else {
-				// root port have change state, we dont need to inform it.
-			}
-		} else {
-			// i'm the root, set the topology change timeout
-			this->topology_change_timeout = simTime() + this->max_age_time + this->forward_delay;
-			EV << "setting the topology change timeout to " << this->topology_change_timeout << endl;
-		}
-
+		this->handleSTPForwardTimer(check_and_cast<STPForwardTimer*>(msg));
 	} else if (dynamic_cast<STPHoldTimer*>(msg)) {
-		STPHoldTimer* hold_timer = dynamic_cast<STPHoldTimer*>(msg);
-		int port = hold_timer->getPort();
-		EV << "Hold timer arrived for port " << port << endl;
-		if (!this->port_status[port].BPDUQueue.isEmpty()) {
-			BPDU* bpdu = (BPDU*)this->port_status[port].BPDUQueue.pop();
-			this->sendBPDU(bpdu,port);
-		}
+		this->handleSTPHoldTimer(check_and_cast<STPHoldTimer*>(msg));
 	} else if (dynamic_cast<STPBPDUTTLTimer*>(msg)) {
-		EV << "BPDU TTL timeout arrived, Root Port lost" << endl;
-
-		// TODO: notify with a bubble to improve the observation
-
-		// FastRecovery procedure when there is a backup root path
-		int root_candidate = -1;
-		for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
-			if (this->port_status[i].role == BACKUP_PORT && this->port_status[i].observed_pr.bridge_id == this->priority_vector.bridge_id) {
-				root_candidate = i;
-				break;
-			}
-		}
-
-		if (root_candidate>-1) {
-			// there is a candidate to replace the lost root port
-			// setting the old root port in designated mode
-			int lost_root_port = this->getRootPort();
-			EV << "replace lost root " << lost_root_port << " port by port " << root_candidate << " port status: " <<  this->port_status[root_candidate]<< endl;
-			this->setPortStatus(root_candidate,PortStatus(LEARNING,ROOT_PORT));
-			this->setPortStatus(lost_root_port,PortStatus(LISTENING,DESIGNATED_PORT));
-			this->priority_vector = this->port_status[root_candidate].observed_pr;
-
-			EV << "New Root Election: " << this->priority_vector << endl;
-			// moving mac address from old root port to the new one
-			this->moveMACAddresses(lost_root_port,root_candidate);
-			// start the BPDU maxAge timer to know when we have lost the root port
-			this->restartBPDUTTLTimer();
-			// schedule the hello timer according the values received from the root bridge (RSTP)
-			this->scheduleHelloTimer();
-			// start updating our information to all the ports
-			this->sendConfigurationBPDU();
-
-		} else {
-			// i'm the root switch.
-			this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
-		}
+		this->handleSTPBPDUTTLTimer(check_and_cast<STPBPDUTTLTimer*>(msg));
 	} else if (dynamic_cast<STPPortEdgeTimer*>(msg)) {
-		STPPortEdgeTimer* edge_timer = dynamic_cast<STPPortEdgeTimer*>(msg);
-		int port = edge_timer->getPort();
-		EV << "Port Edge timer arrived for port. passing it to forward state immediately " << port << endl;
-		this->setPortStatus(port,PortStatus(FORWARDING,EDGE_PORT));
-		this->port_status[port].clearPortEdgeTimer();
+		this->handleSTPPortEdgeTimer(check_and_cast<STPPortEdgeTimer*>(msg));
+	} else {
+		EV << "unknown type of timer arrived. ignoring it" <<endl;
+	}
+}
+
+void MACRelayUnitSTPNP::handleSTPStartTimer(STPStartProtocol* t) {
+	this->active = true;
+
+	EV << "Starting (or Restarting) RSTP Protocol." << endl;
+
+	this->message_age = 0;
+	this->priority_vector = PriorityVector(this->bridge_id,0,this->bridge_id,0);
+
+	EV << "I'm the ROOT Bridge: Priority Vector: " << this->priority_vector << endl;
+
+	this->setAllPortsStatus(PortStatus(LISTENING,DESIGNATED_PORT));
+	this->cancelBPDUTTLTimer();
+	this->sendConfigurationBPDU();
+	this->scheduleHelloTimer();
+	delete(t);
+}
+
+void MACRelayUnitSTPNP::handleSTPHelloTimer(STPHelloTimer* t) {
+	EV << "Hello Timer arrived" << endl;
+	this->sendConfigurationBPDU();
+	// schedule the timer again to the hello time
+	this->scheduleHelloTimer();
+}
+
+void MACRelayUnitSTPNP::handleSTPForwardTimer(STPForwardTimer* t) {
+	int port = t->getPort();
+	EV << "Forward timer arrived for port " << port << endl;
+
+	if (this->port_status[port].state == LISTENING) {
+		EV << "Port transition from LISTENING to LEARNING" << endl;
+		this->setPortStatus(port, PortStatus(LEARNING,this->port_status[port].role));
+	}
+	if (this->port_status[port].state == LEARNING) {
+		EV << "Port transition from LEARNING to FORWARDING" << endl;
+		this->setPortStatus(port, PortStatus(FORWARDING,this->port_status[port].role));
 	}
 
+	// check topology change
+	if (this->priority_vector.root_id != this->bridge_id) {
+		// if i'm not the root.
+		if (port!=this->getRootPort()) {
+			// send the TCN  via the root port informing "port" have change state
+			this->sendTopologyChangeNotificationBPDU(port);
+		} else {
+			// root port have change state, we dont need to inform it.
+		}
+	} else {
+		// i'm the root, set the topology change timeout
+		this->topology_change_timeout = simTime() + this->max_age_time + this->forward_delay;
+		EV << "setting the topology change timeout to " << this->topology_change_timeout << endl;
+	}
+
+}
+
+void MACRelayUnitSTPNP::handleSTPHoldTimer(STPHoldTimer* t) {
+	int port = t->getPort();
+	EV << "Hold timer arrived for port " << port << endl;
+	if (!this->port_status[port].BPDUQueue.isEmpty()) {
+		BPDU* bpdu = (BPDU*)this->port_status[port].BPDUQueue.pop();
+		this->sendBPDU(bpdu,port);
+	}
+}
+
+void MACRelayUnitSTPNP::handleSTPBPDUTTLTimer(STPBPDUTTLTimer* t) {
+	EV << "BPDU TTL timeout arrived, Root Port lost" << endl;
+
+	// TODO: notify with a bubble to improve the observation
+
+	// FastRecovery procedure when there is a backup root path
+	int root_candidate = -1;
+	for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
+		if (this->port_status[i].role == BACKUP_PORT && this->port_status[i].observed_pr.bridge_id == this->priority_vector.bridge_id) {
+			root_candidate = i;
+			break;
+		}
+	}
+
+	if (root_candidate>-1) {
+		// there is a candidate to replace the lost root port
+		// setting the old root port in designated mode
+		int lost_root_port = this->getRootPort();
+		EV << "replace lost root " << lost_root_port << " port by port " << root_candidate << " port status: " <<  this->port_status[root_candidate]<< endl;
+		this->setPortStatus(root_candidate,PortStatus(LEARNING,ROOT_PORT));
+		this->setPortStatus(lost_root_port,PortStatus(LISTENING,DESIGNATED_PORT));
+		this->priority_vector = this->port_status[root_candidate].observed_pr;
+
+		EV << "New Root Election: " << this->priority_vector << endl;
+		// moving mac address from old root port to the new one
+		this->moveMACAddresses(lost_root_port,root_candidate);
+		// start the BPDU maxAge timer to know when we have lost the root port
+		this->restartBPDUTTLTimer();
+		// schedule the hello timer according the values received from the root bridge (RSTP)
+		this->scheduleHelloTimer();
+		// start updating our information to all the ports
+		this->sendConfigurationBPDU();
+
+	} else {
+		// i'm the root switch.
+		this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
+	}
+}
+
+void MACRelayUnitSTPNP::handleSTPPortEdgeTimer(STPPortEdgeTimer* t) {;
+	int port = t->getPort();
+	EV << "Port Edge timer arrived for port. passing it to forward state immediately " << port << endl;
+	this->setPortStatus(port,PortStatus(FORWARDING,EDGE_PORT));
+	this->port_status[port].clearPortEdgeTimer();
 }
 
 // process incoming BPDU's

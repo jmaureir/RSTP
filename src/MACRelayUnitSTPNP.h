@@ -98,7 +98,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 		cMessage* getForwardTimer() {
 			if (this->forward_timer==NULL) {
 				this->forward_timer = new STPForwardTimer("Forward Timer");
-				this->forward_timer->setKind(this->port_index);
+				this->forward_timer->setPort(this->port_index);
 			}
 			return this->forward_timer;
 		}
@@ -253,13 +253,24 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 
   protected:
 
+	// base methods
 	virtual void initialize();
 	virtual void handleMessage(cMessage* msg);
 	virtual void handleTimer(cMessage* t);
-	void broadcastFrame(EtherFrame *frame, int inputport);
 
-	// Handling incoming Ethernet frame
+	// Timer handling
+	virtual void handleSTPStartTimer(STPStartProtocol* t);
+	virtual void handleSTPHelloTimer(STPHelloTimer* t);
+	virtual void handleSTPForwardTimer(STPForwardTimer* t);
+	virtual void handleSTPHoldTimer(STPHoldTimer* t);
+	virtual void handleSTPBPDUTTLTimer(STPBPDUTTLTimer* t);
+	virtual void handleSTPPortEdgeTimer(STPPortEdgeTimer* t);
+
+
+
+	// Handling Ethernet frames
 	virtual void handleIncomingFrame(EtherFrame *msg);
+	virtual void broadcastFrame(EtherFrame *frame, int inputport);
 
 	// process incoming BPDU's
 	virtual void handleBPDU(BPDU* bpdu);
