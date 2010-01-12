@@ -406,58 +406,58 @@ void MACRelayUnitSTPNP::handleMessage(cMessage* msg) {
 			if (dynamic_cast<EtherFrame*>(msg)) {
 				cPacket* frame = ((EtherFrame*)msg)->getEncapsulatedMsg();
 				if (dynamic_cast<BPDU*>(frame)) {
-					EV << "Incoming BPDU via Port " << msg->getArrivalGate()->getIndex() << ". Processing it" << endl;
 					cPacket* frame = ((EtherFrame*)msg)->decapsulate();
 					BPDU* bpdu = dynamic_cast<BPDU*>(frame);
 					bpdu->setArrival(this,msg->getArrivalGateId());
 					this->handleBPDU(bpdu);
-
-					delete (msg);
 				} else {
-					// ether_frame incoming, check the arrival port ain't blocked
-					if (this->port_status[msg->getArrivalGate()->getIndex()].state != BLOCKING) {
-
-						EtherFrame* frame = dynamic_cast<EtherFrame*>(msg);
-						int outputport = getPortForAddress(frame->getDest());
-
-						if (outputport>=0 && this->port_status[outputport].state!=FORWARDING) {
-
-							if (this->port_status[outputport].state==LEARNING) {
-								EV << "Port in LEARNING state. updating address table" << endl;
-								this->updateTableWithAddress(frame->getDest(),outputport);
-							}
-
-							EV << "Frame arrived on port " << msg->getArrivalGate()->getIndex() << " Addressed to a port not in forward mode. discarding it" << endl;
-							delete(frame);
-							return;
-						}
-
-						if (outputport>-1) {
-							this->port_status[outputport].packet_forwarded++;
-							if (this->port_status[outputport].packet_forwarded > this->packet_fwd_limit) {
-								// possible loop.. forcing a bpdu transmission
-								EV << "packet forward limit reached on port " << outputport << " forcing a bpdu transmission " << endl;
-								this->sendConfigurationBPDU(outputport);
-								this->port_status[outputport].packet_forwarded = 0;
-							}
-							EV << "Port " << outputport << " forwarded frames " << this->port_status[outputport].packet_forwarded << endl;
-						}
-						this->handleIncomingFrame(frame);
-					} else {
-						// discarding frame since the arrival port is blocked
-						EV << "Port " << msg->getArrivalGate()->getIndex() << " incoming frame in blocked port. discarding" << endl;
-						delete(msg);
-					}
+					// Etherframe incoming, handle it
+					EtherFrame* frame = dynamic_cast<EtherFrame*>(msg);
+					this->handleIncomingFrame(frame);
+					return;
 				}
 			} else {
-				EV << "Unknown frame time arrived" << endl;
+				EV << "Non Ethernet frame arrived. Discarding it" << endl;
 			}
 		} else {
 			EV << "Bridge not active. discarding packet" << endl;
-			delete(msg);
 		}
 	}
+	delete (msg);
 }
+
+void MACRelayUnitSTPNP::handleIncomingFrame(EtherFrame *msg) {
+	if (this->port_status[msg->getArrivalGate()->getIndex()].state != BLOCKING) {
+		int outputport = getPortForAddress(msg->getDest());
+		if (outputport>=0 && this->port_status[outputport].state!=FORWARDING) {
+			if (this->port_status[outputport].state==LEARNING) {
+				EV << "Port in LEARNING state. updating address table" << endl;
+				this->updateTableWithAddress(msg->getDest(),outputport);
+			}
+			EV << "Frame arrived on port " << msg->getArrivalGate()->getIndex() << " Addressed to a port not in forward mode. discarding it" << endl;
+			delete(msg);
+			return;
+		}
+
+		if (outputport>-1) {
+			this->port_status[outputport].packet_forwarded++;
+			if (this->port_status[outputport].packet_forwarded > this->packet_fwd_limit) {
+				// possible loop.. forcing a bpdu transmission
+				EV << "packet forward limit reached on port " << outputport << " forcing a bpdu transmission " << endl;
+				this->sendConfigurationBPDU(outputport);
+				this->port_status[outputport].packet_forwarded = 0;
+			}
+			EV << "Port " << outputport << " forwarded frames " << this->port_status[outputport].packet_forwarded << endl;
+		}
+		// handle the frame with the legacy method to process it
+		MACRelayUnitNP::handleIncomingFrame(msg);
+	} else {
+		// discarding frame since the arrival port is blocked
+		EV << "Port " << msg->getArrivalGate()->getIndex() << " incoming frame in blocked port. discarding" << endl;
+		delete(msg);
+	}
+}
+
 
 void MACRelayUnitSTPNP::handleTimer(cMessage* msg) {
 	if (dynamic_cast<STPStartProtocol*>(msg)) {
@@ -569,7 +569,6 @@ void MACRelayUnitSTPNP::handleBPDU(BPDU* bpdu) {
 	int arrival_port = bpdu->getArrivalGate()->getIndex();
 	EV << bpdu->getName() << " arrived on port " << arrival_port << endl;
 
-
 	// check the message age limit
 	if (bpdu->getMessageAge() > this->max_age_time) {
 		EV << "Incoming BPDU age " << bpdu->getMessageAge() << " exceed the max age time " << this->max_age_time <<  ", blocking port" << endl;
@@ -602,6 +601,8 @@ void MACRelayUnitSTPNP::handleBPDU(BPDU* bpdu) {
 		this->par("agingTime") = this->agingTime.dbl();
 		EV << "BPDU is NOT topology change flagged, mac aging time = " << this->agingTime << endl;
 	}
+
+	// Handle the BPDU according its type.
 
 	if (bpdu->getType() == CONF_BPDU) {
 		this->handleConfigurationBPDU(check_and_cast<CBPDU*>(bpdu));

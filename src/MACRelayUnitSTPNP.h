@@ -258,6 +258,9 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void handleTimer(cMessage* t);
 	void broadcastFrame(EtherFrame *frame, int inputport);
 
+	// Handling incoming Ethernet frame
+	virtual void handleIncomingFrame(EtherFrame *msg);
+
 	// process incoming BPDU's
 	virtual void handleBPDU(BPDU* bpdu);
 	virtual void handleConfigurationBPDU(CBPDU* bpdu);
