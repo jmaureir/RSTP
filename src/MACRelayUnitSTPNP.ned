@@ -1,3 +1,4 @@
+package RSTP;
 //
 // Copyright (C) 2003 Andras Varga; CTIE, Monash University, Australia
 // Copyright (C) 2009 Juan-Carlos Maureira. INRIA 2009

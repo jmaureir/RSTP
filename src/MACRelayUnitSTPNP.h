@@ -34,7 +34,7 @@ class EtherFrame;
  */
 class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 {
-  private:
+  protected:
 
 	struct PortStatus {
 
@@ -311,8 +311,6 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void handleSTPHoldTimer(STPHoldTimer* t);
 	virtual void handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t);
 	virtual void handleSTPPortEdgeTimer(STPPortEdgeTimer* t);
-
-
 
 	// Handling Ethernet frames
 	virtual void handleIncomingFrame(EtherFrame *msg);
