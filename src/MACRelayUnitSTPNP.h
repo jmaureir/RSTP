@@ -278,7 +278,6 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	void scheduleHelloTimer();
 	void restartBPDUTimeoutTimer(int port);
 
-
 	// BPDU functions
 	virtual BPDU* getNewBPDU(BPDUType type);
 	virtual BPDU* getNewRSTBPDU(int port);
@@ -286,9 +285,13 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void handleTopologyChangeFlag(bool flag);
 
 	// MAC address functions
-	void flushMACAddressesOnPort(int port_idx);
-	void moveMACAddresses(int from_port,int to_port);
+	virtual void flushMACAddressesOnPort(int port_idx);
+	virtual void moveMACAddresses(int from_port,int to_port);
 
+	// Customizable Hooks
+
+	virtual void preRootChange() {}
+	virtual void postRootChange() {}
 
   public:
 

@@ -213,6 +213,9 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 
 void MACRelayUnitSTPNP::setRootPort(int port) {
 
+	// preRootChange hook
+	this->preRootChange();
+
 	// start the sync process on all the ports
 	this->allSynced = false;
 	EV << "Old Root Election. PR " << this->priority_vector << endl;
@@ -232,6 +235,9 @@ void MACRelayUnitSTPNP::setRootPort(int port) {
 	this->restartBPDUTimeoutTimer(port);
 	// schedule the hello timer according the values received from the root bridge (RSTP)
 	this->scheduleHelloTimer();
+
+	// portRootChange hook
+	this->postRootChange();
 
 	// start proposing our information to all the ports
 	this->sendConfigurationBPDU();
