@@ -548,6 +548,10 @@ void MACRelayUnitSTPNP::handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t) {
 
 	if (port == this->getRootPort()) {
 		// BPDU was lost in the root port. starting the root port recovery
+
+		// preRootPortLost Hook
+		this->preRootPortLost();
+
 		EV << "Root port Lost! Starting recovery" << endl;
 		// FastRecovery procedure when there is a backup root path
 		int root_candidate = -1;
@@ -573,11 +577,17 @@ void MACRelayUnitSTPNP::handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t) {
 			// schedule the hello timer according the values received from the root bridge (RSTP)
 			this->scheduleHelloTimer();
 			// start updating our information to all the ports
+
+			// postRootPortLost Hook
+			this->postRootPortLost();
+
 			this->sendConfigurationBPDU();
 
 		} else {
 			// i'm the root switch.
 			this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
+			// postRootPortLost Hook
+			this->postRootPortLost();
 		}
 	} else {
 		EV << "Port " << port << " losses the BPDU keep alive. port is not alive" << endl;

@@ -293,6 +293,9 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void preRootChange() {}
 	virtual void postRootChange() {}
 
+	virtual void preRootPortLost() {}
+	virtual void postRootPortLost() {}
+
   public:
 
 	static const MACAddress STPMCAST_ADDRESS;
