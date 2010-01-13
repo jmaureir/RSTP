@@ -23,7 +23,9 @@ message STPHelloTimer extends STPTimer { }
 message STPForwardTimer extends STPTimer { 
 	int port;
 }
-message STPBPDUTTLTimer extends STPTimer { }
+message STPBPDUTimeoutTimer extends STPTimer {
+    int port;
+}
 message STPHoldTimer extends STPTimer {
     int port;
 }

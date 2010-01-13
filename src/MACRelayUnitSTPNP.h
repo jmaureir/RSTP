@@ -45,6 +45,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 		STPForwardTimer* forward_timer;
 		STPHoldTimer* hold_timer;
 		STPPortEdgeTimer* edge_timer;
+		STPBPDUTimeoutTimer* bpdu_timeout_timer;
 
 		cQueue BPDUQueue;
 
@@ -57,6 +58,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 		bool proposed;
 		bool agreed;
 		bool agree;
+		bool alive;
 
 		long packet_forwarded;
 
@@ -66,10 +68,11 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 			forward_timer = NULL;
 			hold_timer = NULL;
 			edge_timer = NULL;
+			bpdu_timeout_timer = NULL;
 			port_index = port;
 			packet_forwarded = 0;
 
-			sync = proposing = synced = proposed = agreed = agree = false;
+			sync = proposing = synced = proposed = agreed = agree = alive = false;
 
 			std::stringstream tmp;
 			tmp << "Queue BPDU port " << port;
@@ -81,9 +84,11 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 			state = BLOCKING;
 			role = NONDESIGNATED_PORT;
 			forward_timer = NULL;
+			bpdu_timeout_timer = NULL;
 			hold_timer = NULL;
 			edge_timer = NULL;
 			port_index = -1;
+			sync = proposing = synced = proposed = agreed = agree = alive = false;
 		}
 
 		PortStatus(PortState s, PortRole m) {
@@ -92,7 +97,28 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 			forward_timer = NULL;
 			hold_timer = NULL;
 			edge_timer = NULL;
+			bpdu_timeout_timer = NULL;
 			port_index = -1;
+			sync = proposing = synced = proposed = agreed = agree = alive = false;
+		}
+
+		PortStatus(const PortStatus& p) {
+			state = p.state;
+			role = p.role;
+			forward_timer = p.forward_timer;
+			hold_timer = p.hold_timer;
+			edge_timer = p.edge_timer;
+			bpdu_timeout_timer =  p.bpdu_timeout_timer;
+			port_index = p.port_index;
+			packet_forwarded = p.packet_forwarded;
+			sync = p.sync;
+			proposing = p.proposing;
+			synced = p.synced;
+			proposed = p.proposed;
+			agreed = p.agreed;
+			agree = p.agree;
+			alive = p.alive;
+
 		}
 
 		cMessage* getForwardTimer() {
@@ -133,6 +159,14 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 			}
 		}
 
+		STPBPDUTimeoutTimer* getBPDUTimeoutTimer() {
+			if (this->bpdu_timeout_timer==NULL) {
+				this->bpdu_timeout_timer= new STPBPDUTimeoutTimer("BPDU Timeout Timer");
+				this->bpdu_timeout_timer->setPort(this->port_index);
+			}
+			return this->bpdu_timeout_timer;
+		}
+
 		bool isHoldTimerActive() {
 			if (this->hold_timer!=NULL) {
 				if (this->hold_timer->isScheduled()) {
@@ -152,6 +186,8 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 		}
 
 		friend std::ostream& operator << (std::ostream& os, const PortStatus& p ) {
+
+			os << "Port " << p.port_index << " ";
 
 			switch (p.state) {
 			case BLOCKING:
@@ -191,6 +227,8 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 				break;;
 			}
 
+			os << " synced:" << p.synced << " bpdu alive:" << p.alive;
+
 			return os;
 		}
 
@@ -211,8 +249,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	int packet_fwd_limit;
 
 	// timer messages
-	cMessage* hello_timer;
-	cMessage* bpdu_timeout_timer;
+	STPHelloTimer* hello_timer;
 
 	// STP parameters
 	BridgeID bridge_id;         // bridge id
@@ -235,14 +272,23 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	void recordRootTimerDelays(BPDU* bpdu);
 	void setAllPortsStatus(PortStatus status);
 	void setPortStatus(int port_idx, PortStatus status);
+
+	// Timer functions
 	void scheduleHoldTimer(int port);
 	void scheduleHelloTimer();
-	void restartBPDUTTLTimer();
-	void cancelBPDUTTLTimer();
-	BPDU* getNewBPDU(BPDUType type); // BPDU factory
+	void restartBPDUTimeoutTimer(int port);
 
+
+	// BPDU functions
+	virtual BPDU* getNewBPDU(BPDUType type);
+	virtual BPDU* getNewRSTBPDU(int port);
+	virtual bool isBPDUAged(BPDU* bpdu);
+	virtual void handleTopologyChangeFlag(bool flag);
+
+	// MAC address functions
 	void flushMACAddressesOnPort(int port_idx);
 	void moveMACAddresses(int from_port,int to_port);
+
 
   public:
 
@@ -263,7 +309,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void handleSTPHelloTimer(STPHelloTimer* t);
 	virtual void handleSTPForwardTimer(STPForwardTimer* t);
 	virtual void handleSTPHoldTimer(STPHoldTimer* t);
-	virtual void handleSTPBPDUTTLTimer(STPBPDUTTLTimer* t);
+	virtual void handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t);
 	virtual void handleSTPPortEdgeTimer(STPPortEdgeTimer* t);
 
 
@@ -282,7 +328,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	virtual void sendTopologyChangeNotificationBPDU(int port_idx);
 	virtual void sendTopologyChangeAckBPDU(int port_idx);
 
-	virtual void sendBPDU(BPDU* bpdu,int port=-1);
+	virtual void sendBPDU(BPDU* bpdu,int port);
 
 };
 

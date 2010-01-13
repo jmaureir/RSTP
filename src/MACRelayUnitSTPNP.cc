@@ -22,9 +22,8 @@
 
 // Next Day TODO:
 
-// 3. evaluate all scenarios with random powerOn times (to test when the topology converge) and then
-//    with link failures to evaluate the fast recovery when backups/alternate links are presents
-// 4. send the TC when topology changes to shorten the MAC aging timers
+// 4. check the TC when topology changes to shorten the MAC aging timers
+//
 
 Define_Module( MACRelayUnitSTPNP );
 
@@ -33,7 +32,6 @@ const MACAddress MACRelayUnitSTPNP::STPMCAST_ADDRESS("01:80:C2:00:00:00");
 MACRelayUnitSTPNP::MACRelayUnitSTPNP() {
 	MACRelayUnitNP::MACRelayUnitNP();
 	this->active = false;
-	this->bpdu_timeout_timer = NULL;
 	this->hello_timer = NULL;
 	this->topology_change_timeout = 0;
 	this->message_age = 0;
@@ -77,6 +75,8 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 			this->port_status[port_idx].agreed = false;   // wait to be agreed with the proposal
 			this->port_status[port_idx].agree = false;    // reset this flag
 			this->port_status[port_idx].synced = false;   // wait until we agreed
+			this->port_status[port_idx].proposed_pr = PriorityVector();
+			this->port_status[port_idx].observed_pr = PriorityVector();
 		}
 
 		if (status.state == FORWARDING && status.role == DESIGNATED_PORT) {
@@ -103,12 +103,18 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 			this->port_status[port_idx].proposing = false; // reset this flag
 		}
 
-		EV << "Port " << port_idx << " change status : " << status << endl;
+		EV << "Port " << port_idx << " change status : " << this->port_status[port_idx] << endl;
+
 		if (status.state == BLOCKING) {
 			this->gate("lowerLayerOut",port_idx)->getDisplayString().setTagArg("ls",0,"red");
 			if (this->port_status[port_idx].getForwardTimer()->isScheduled()) {
 				EV << "  Canceling fwd timer" << endl;
 				cancelEvent(this->port_status[port_idx].getForwardTimer());
+			}
+			if (this->port_status[port_idx].isPortEdgeTimerActive()) {
+				EV << "  Canceling port edge timer" << endl;
+				cancelEvent(this->port_status[port_idx].getPortEdgeTimer());
+				this->port_status[port_idx].clearPortEdgeTimer();
 			}
 		} else if (status.state == LISTENING) {
 			this->gate("lowerLayerOut",port_idx)->getDisplayString().setTagArg("ls",0,"yellow");
@@ -160,6 +166,7 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 			this->port_status[port_idx].clearForwardTimer();
 		}
 
+
 		if (status.role == ROOT_PORT) {
 			this->gate("lowerLayerOut",port_idx)->getDisplayString().setTagArg("t",0,"R");
 		} else if (status.role == DESIGNATED_PORT) {
@@ -197,7 +204,6 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 				EV << "all ports synced, so, we agree with the root port selection" << endl;
 				this->port_status[this->getRootPort()].agree = true;
 				this->setPortStatus(this->getRootPort(),PortStatus(FORWARDING,ROOT_PORT));
-
 				this->sendConfigurationBPDU(this->getRootPort());
 			}
 		}
@@ -222,8 +228,8 @@ void MACRelayUnitSTPNP::setRootPort(int port) {
 	// assing the root port role to the given port
 	this->setPortStatus(port,PortStatus(LEARNING,ROOT_PORT));
 
-	// start the BPDU ttl timer to know when we have lost the root port
-	this->restartBPDUTTLTimer();
+	// start the BPDU timeout timer to know when we have lost the root port
+	this->restartBPDUTimeoutTimer(port);
 	// schedule the hello timer according the values received from the root bridge (RSTP)
 	this->scheduleHelloTimer();
 
@@ -285,33 +291,19 @@ void MACRelayUnitSTPNP::scheduleHelloTimer() {
 }
 
 
-void MACRelayUnitSTPNP::restartBPDUTTLTimer() {
+void MACRelayUnitSTPNP::restartBPDUTimeoutTimer(int port) {
 
-	EV << "Rescheduling BPDU Timeout Timer" << endl;
+	EV << "Rescheduling BPDU Timeout Timer on port " << port << endl;
 
-	if (this->bpdu_timeout_timer==NULL) {
-		this->bpdu_timeout_timer = new STPBPDUTTLTimer("BPDU Timeout");
-	}
+	STPBPDUTimeoutTimer* timer = this->port_status[port].getBPDUTimeoutTimer();
 
-	if (this->bpdu_timeout_timer->isScheduled()) {
-		cancelEvent(this->bpdu_timeout_timer);
-		scheduleAt(simTime()+this->bpdu_timeout,this->bpdu_timeout_timer);
+	if (timer->isScheduled()) {
+		cancelEvent(timer);
+		scheduleAt(simTime()+this->bpdu_timeout,timer);
 	} else {
-		scheduleAt(simTime()+this->bpdu_timeout,this->bpdu_timeout_timer);
+		scheduleAt(simTime()+this->bpdu_timeout,timer);
 	}
-}
-
-void MACRelayUnitSTPNP::cancelBPDUTTLTimer() {
-
-	EV << "Canceling BPDU Timeout Timer" << endl;
-
-	if (this->bpdu_timeout_timer!=NULL) {
-		if (this->bpdu_timeout_timer->isScheduled()) {
-			cancelEvent(this->bpdu_timeout_timer);
-		}
-		delete(this->bpdu_timeout_timer);
-		this->bpdu_timeout_timer = NULL;
-	}
+	this->port_status[port].alive = true;
 }
 
 void MACRelayUnitSTPNP::flushMACAddressesOnPort(int port_idx) {
@@ -386,6 +378,7 @@ void MACRelayUnitSTPNP::initialize() {
     this->port_status.clear();
     for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
     	this->port_status.insert(std::make_pair(i,PortStatus(i)));
+    	WATCH(this->port_status[i]);
     }
 
     WATCH(bridge_id);
@@ -468,8 +461,8 @@ void MACRelayUnitSTPNP::handleTimer(cMessage* msg) {
 		this->handleSTPForwardTimer(check_and_cast<STPForwardTimer*>(msg));
 	} else if (dynamic_cast<STPHoldTimer*>(msg)) {
 		this->handleSTPHoldTimer(check_and_cast<STPHoldTimer*>(msg));
-	} else if (dynamic_cast<STPBPDUTTLTimer*>(msg)) {
-		this->handleSTPBPDUTTLTimer(check_and_cast<STPBPDUTTLTimer*>(msg));
+	} else if (dynamic_cast<STPBPDUTimeoutTimer*>(msg)) {
+		this->handleSTPBPDUTimeoutTimer(check_and_cast<STPBPDUTimeoutTimer*>(msg));
 	} else if (dynamic_cast<STPPortEdgeTimer*>(msg)) {
 		this->handleSTPPortEdgeTimer(check_and_cast<STPPortEdgeTimer*>(msg));
 	} else {
@@ -488,7 +481,6 @@ void MACRelayUnitSTPNP::handleSTPStartTimer(STPStartProtocol* t) {
 	EV << "I'm the ROOT Bridge: Priority Vector: " << this->priority_vector << endl;
 
 	this->setAllPortsStatus(PortStatus(LISTENING,DESIGNATED_PORT));
-	this->cancelBPDUTTLTimer();
 	this->sendConfigurationBPDU();
 	this->scheduleHelloTimer();
 	delete(t);
@@ -540,42 +532,50 @@ void MACRelayUnitSTPNP::handleSTPHoldTimer(STPHoldTimer* t) {
 	}
 }
 
-void MACRelayUnitSTPNP::handleSTPBPDUTTLTimer(STPBPDUTTLTimer* t) {
-	EV << "BPDU TTL timeout arrived, Root Port lost" << endl;
+void MACRelayUnitSTPNP::handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t) {
+	EV << "BPDU TTL timeout arrived" << endl;
+
+	// port where the timer was triggered
+	int port = t->getPort();
 
 	// TODO: notify with a bubble to improve the observation
 
-	// FastRecovery procedure when there is a backup root path
-	int root_candidate = -1;
-	for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
-		if (this->port_status[i].role == BACKUP_PORT && this->port_status[i].observed_pr.bridge_id == this->priority_vector.bridge_id) {
-			root_candidate = i;
-			break;
+	if (port == this->getRootPort()) {
+		// BPDU was lost in the root port. starting the root port recovery
+		EV << "Root port Lost! Starting recovery" << endl;
+		// FastRecovery procedure when there is a backup root path
+		int root_candidate = -1;
+		for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
+			if (this->port_status[i].role == BACKUP_PORT && this->port_status[i].observed_pr.bridge_id == this->priority_vector.bridge_id) {
+				root_candidate = i;
+				break;
+			}
 		}
-	}
 
-	if (root_candidate>-1) {
-		// there is a candidate to replace the lost root port
-		// setting the old root port in designated mode
-		int lost_root_port = this->getRootPort();
-		EV << "replace lost root " << lost_root_port << " port by port " << root_candidate << " port status: " <<  this->port_status[root_candidate]<< endl;
-		this->setPortStatus(root_candidate,PortStatus(LEARNING,ROOT_PORT));
-		this->setPortStatus(lost_root_port,PortStatus(LISTENING,DESIGNATED_PORT));
-		this->priority_vector = this->port_status[root_candidate].observed_pr;
+		if (root_candidate>-1) {
+			// there is a candidate to replace the lost root port
+			// setting the old root port in designated mode
+			int lost_root_port = this->getRootPort();
+			EV << "replace lost root " << lost_root_port << " port by port " << root_candidate << " port status: " <<  this->port_status[root_candidate]<< endl;
+			this->setPortStatus(root_candidate,PortStatus(LEARNING,ROOT_PORT));
+			this->setPortStatus(lost_root_port,PortStatus(LISTENING,DESIGNATED_PORT));
+			this->priority_vector = this->port_status[root_candidate].observed_pr;
 
-		EV << "New Root Election: " << this->priority_vector << endl;
-		// moving mac address from old root port to the new one
-		this->moveMACAddresses(lost_root_port,root_candidate);
-		// start the BPDU maxAge timer to know when we have lost the root port
-		this->restartBPDUTTLTimer();
-		// schedule the hello timer according the values received from the root bridge (RSTP)
-		this->scheduleHelloTimer();
-		// start updating our information to all the ports
-		this->sendConfigurationBPDU();
+			EV << "New Root Election: " << this->priority_vector << endl;
+			// moving mac address from old root port to the new one
+			this->moveMACAddresses(lost_root_port,root_candidate);
+			// schedule the hello timer according the values received from the root bridge (RSTP)
+			this->scheduleHelloTimer();
+			// start updating our information to all the ports
+			this->sendConfigurationBPDU();
 
+		} else {
+			// i'm the root switch.
+			this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
+		}
 	} else {
-		// i'm the root switch.
-		this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
+		EV << "Port " << port << " losses the BPDU keep alive. port is not alive" << endl;
+		this->port_status[port].alive = false;
 	}
 }
 
@@ -586,16 +586,34 @@ void MACRelayUnitSTPNP::handleSTPPortEdgeTimer(STPPortEdgeTimer* t) {;
 	this->port_status[port].clearPortEdgeTimer();
 }
 
+void MACRelayUnitSTPNP::handleTopologyChangeFlag(bool flag) {
+	if (flag) {
+		this->agingTime = this->max_age_time + this->forward_delay;
+		this->par("agingTime") = this->agingTime.dbl();
+		EV << "BPDU is topology change flagged, reducing the mac aging time = " << this->agingTime << endl;
+	} else {
+		this->agingTime = this->original_mac_aging_time;
+		this->par("agingTime") = this->agingTime.dbl();
+		EV << "BPDU is NOT topology change flagged, mac aging time = " << this->agingTime << endl;
+	}
+}
+
 // process incoming BPDU's
 void MACRelayUnitSTPNP::handleBPDU(BPDU* bpdu) {
 	int arrival_port = bpdu->getArrivalGate()->getIndex();
 	EV << bpdu->getName() << " arrived on port " << arrival_port << endl;
 
-	// check the message age limit
-	if (bpdu->getMessageAge() > this->max_age_time) {
+	if (this->isBPDUAged(bpdu)) {
 		EV << "Incoming BPDU age " << bpdu->getMessageAge() << " exceed the max age time " << this->max_age_time <<  ", blocking port" << endl;
 		this->setPortStatus(arrival_port,PortStatus(BLOCKING,ALTERNATE_PORT));
 		delete(bpdu);
+
+		// check if we have lost the root port
+		if (this->priority_vector.root_id != this->bridge_id && this->getRootPort()==-1) {
+			// we loose the root port. restarting the protocol
+			this->handleTimer(new STPStartProtocol("Restart the RSTP Protocol"));
+		}
+
 		return;
 	}
 
@@ -605,24 +623,11 @@ void MACRelayUnitSTPNP::handleBPDU(BPDU* bpdu) {
 		this->setPortStatus(arrival_port,PortStatus(LEARNING,this->port_status[arrival_port].role));
 	}
 
-	// if i'm not the root, check the bpdu ttl timer
-	if (this->priority_vector.root_id != this->bridge_id) {
-		// if the BPDU comes from the root port, update the bpdu ttl timer
-		if (bpdu->getArrivalGate()->getIndex() == this->getRootPort()) {
-			this->restartBPDUTTLTimer();
-		}
-	}
+	// restart the bpdu timeout timer
+	this->restartBPDUTimeoutTimer(arrival_port);
 
 	// check if topology change flag is set to reduce the aging mac timer
-	if (bpdu->getTopologyChangeFlag()) {
-		this->agingTime = this->max_age_time + this->forward_delay;
-		this->par("agingTime") = this->agingTime.dbl();
-		EV << "BPDU is topology change flagged, reducing the mac aging time = " << this->agingTime << endl;
-	} else {
-		this->agingTime = this->original_mac_aging_time;
-		this->par("agingTime") = this->agingTime.dbl();
-		EV << "BPDU is NOT topology change flagged, mac aging time = " << this->agingTime << endl;
-	}
+	this->handleTopologyChangeFlag(bpdu->getTopologyChangeFlag());
 
 	// Handle the BPDU according its type.
 
@@ -638,7 +643,6 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 
 	int arrival_port = bpdu->getArrivalGate()->getIndex();
 	PriorityVector arrived_pr = PriorityVector(bpdu->getRootBID(),bpdu->getRootPathCost(),bpdu->getSenderBID(),bpdu->getPortId());
-	this->recordPriorityVector(bpdu,arrival_port);
 
 	EV << "Arrived PR: " << arrived_pr << endl;
 	if (this->port_status[arrival_port].proposing) {
@@ -650,17 +654,22 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 	EV << "ROOT PR: " << this->priority_vector << endl;
 
 	// RSTP: check for port agreement allowing port fast transition
-	if (arrived_pr == this->port_status[arrival_port].proposed_pr) {
-		// arrived bpdu is exactly the same that we have proposed. bpdu should be an agreement and the port should be proposing
-		if (this->port_status[arrival_port].proposing && bpdu->getAgreement()) {
+	if (bpdu->getAgreement()) {
+		if (this->port_status[arrival_port].proposing && arrived_pr == this->port_status[arrival_port].proposed_pr) {
+			// arrived bpdu is exactly the same that we have proposed. bpdu should be an agreement and the port should be proposing
+
 			EV << "BPDU agrees the proposal to fast port transition. set the port in FORWARDING state" << endl;
 			this->setPortStatus(arrival_port,PortStatus(FORWARDING,DESIGNATED_PORT));
 		} else {
-			EV << "BPDU comes from my self (same port!!). discarding it" << endl;
+			EV << "BPDU informs that is agree and we are not proposing. so, we discard the BPDU and we propose our Root information" << endl;
+			this->port_status[arrival_port].proposing = true;
+			this->sendConfigurationBPDU(arrival_port);
 		}
 		delete(bpdu);
 		return;
 	}
+
+	this->recordPriorityVector(bpdu,arrival_port);
 
 	if (arrived_pr > this->priority_vector) {
 		EV << "received BPDU has superior priority vector." << endl;
@@ -694,8 +703,11 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 			this->setPortStatus(arrival_port,PortStatus(BLOCKING,BACKUP_PORT));
 		} else {
 			if (this->getRootPort()>-1) {
-				EV << "Keeping the root election and updating message age" << endl;
-				this->message_age = bpdu->getMessageAge();
+				EV << "Keeping the root election." << endl;
+				if (!bpdu->getAckFlag()) {
+					EV << "updating message age" << endl;
+					this->message_age = bpdu->getMessageAge();
+				}
 			} else {
 				// root port blocked by a redundant path before to get blocked. reactivating the root port
 				EV << "root port blocked by a redundant path before to get blocked. reactivating the root port" << endl;
@@ -832,7 +844,8 @@ void MACRelayUnitSTPNP::handleTopologyChangeNotificationBPDU(TCNBPDU* bpdu) {
 				// ack the TCN
 				this->sendTopologyChangeAckBPDU(port);
 				// forward the TCN via the root port
-				bpdu->setMessageAge(bpdu->getMessageAge()+1);
+				bpdu->setMessageAge(0);
+				bpdu->setSenderBID(this->bridge_id);
 				bpdu->setPortId(this->getRootPort());
 				this->sendBPDU(bpdu,this->getRootPort());
 			} else {
@@ -846,48 +859,35 @@ void MACRelayUnitSTPNP::handleTopologyChangeNotificationBPDU(TCNBPDU* bpdu) {
 
 void MACRelayUnitSTPNP::sendConfigurationBPDU(int port_idx) {
 
-	// get a new BPDU
-	BPDU* bpdu = this->getNewBPDU(CONF_BPDU);
-	// prepare the configuration BPDU
-	bpdu->setPortId(port_idx);
-
 	if (port_idx>-1) {
-		// RSTP: port information
-		bpdu->setPortRole(this->port_status[port_idx].role);
-		bpdu->setForwarding(this->port_status[port_idx].state == FORWARDING ? true : false);
-		bpdu->setLearning(this->port_status[port_idx].state == LEARNING ? true : false);
-
-		// RSTP: set proposal flag we are proposing a transition on that port
-		if (this->port_status[port_idx].proposing) {
-			bpdu->setProposal(true);
-			bpdu->setAgreement(false);
-		}
-
-		// RSTP: set agreement flag when we are agree (all port synced) with the root bridge info
-		if (this->port_status[port_idx].agree) {
-			bpdu->setProposal(false);
-			bpdu->setAgreement(true);
-			// use the observed_pr on the port to agree the proposal.
-			// root bridge id comes already set from the getNewBPDU method
-			bpdu->setSenderBID(this->port_status[port_idx].observed_pr.bridge_id);
-			bpdu->setPortId(this->port_status[port_idx].observed_pr.port_id);
-			bpdu->setRootPathCost(this->port_status[port_idx].observed_pr.root_path_cost);
-			bpdu->setMessageAge(0);
+		// get a new RST BPDU prepared to be sent by port_idx
+		BPDU* bpdu = this->getNewRSTBPDU(port_idx);
+		// send the BPDU
+		this->sendBPDU(bpdu,port_idx);
+	} else {
+		// send the BPDU over all the ports (bpdu broadcast
+		for(int port=0;port<numPorts;port++) {
+			if (this->port_status[port].role == DESIGNATED_PORT || this->port_status[port].role == ROOT_PORT) {
+				BPDU* bpdu = this->getNewRSTBPDU(port);
+				// send the BPDU
+				this->sendBPDU(bpdu,port);
+			}
 		}
 	}
-
-	// send the BPDU
-	this->sendBPDU(bpdu,port_idx);
 }
 
 void MACRelayUnitSTPNP::sendTopologyChangeNotificationBPDU(int port_idx) {
-	// get a new BPDU
-	BPDU* bpdu = this->getNewBPDU(TCN_BPDU);
-	// prepare the configuration BPDU
-	bpdu->setPortId(port_idx);
-	bpdu->setMessageAge(0);
-	// send the BPDU
-	this->sendBPDU(bpdu,this->getRootPort());
+	if (this->getRootPort()>-1) {
+		// get a new BPDU
+		BPDU* bpdu = this->getNewBPDU(TCN_BPDU);
+		// prepare the configuration BPDU
+		bpdu->setPortId(port_idx);
+		bpdu->setMessageAge(0);
+		// send the BPDU
+		this->sendBPDU(bpdu,this->getRootPort());
+	} else {
+		EV << "No root port defined. TCN BPDU transmission canceled" << endl;
+	}
 }
 
 void MACRelayUnitSTPNP::sendTopologyChangeAckBPDU(int port_idx) {
@@ -907,82 +907,31 @@ void MACRelayUnitSTPNP::sendTopologyChangeAckBPDU(int port_idx) {
 
 void MACRelayUnitSTPNP::sendBPDU(BPDU* bpdu,int port) {
 
-	// check if we need to flag the bpdu with the Topology Change flag (only for root bridge)
-	if (this->priority_vector.root_id == this->bridge_id) {
-		if (simTime() < this->topology_change_timeout) {
-			bpdu->setTopologyChangeFlag(true);
+	if (!(this->port_status[port].isHoldTimerActive())) {
+		// bpdu is meant to be send via the port id
+		EV << "Sending " << bpdu->getName() << " via port " << port << endl;
 
-			EV << "flagging BPDU with TC flag" << endl;
-		} else {
-			EV << "TC Flag is off" << endl;
-		}
-	}
+		EtherFrame* frame = new EtherFrame(bpdu->getName());
+		frame->setDest(MACRelayUnitSTPNP::STPMCAST_ADDRESS);
+		frame->setSrc(this->bridge_id.address);
 
-	if (port>-1) {
+		BPDU* b = bpdu->dup();
 
-		if (!(this->port_status[port].isHoldTimerActive())) {
-			// bpdu is meant to be send via the port id
-			EV << "Sending " << bpdu->getName() << " via port " << port << endl;
+		b->setPortRole(this->port_status[port].role);
+		b->setForwarding(this->port_status[port].state == FORWARDING ? true : false);
+		b->setLearning(this->port_status[port].state == LEARNING ? true : false);
 
-			EtherFrame* frame = new EtherFrame(bpdu->getName());
-			frame->setDest(MACRelayUnitSTPNP::STPMCAST_ADDRESS);
-			frame->setSrc(this->bridge_id.address);
+		frame->encapsulate(b);
+		send(frame, "lowerLayerOut", port);
+		this->scheduleHoldTimer(port);
 
-			BPDU* b = bpdu->dup();
-			frame->encapsulate(b);
-			send(frame, "lowerLayerOut", port);
-			this->scheduleHoldTimer(port);
+		// record the proposed bpdu on this port
+		this->port_status[port].proposed_pr = PriorityVector(b->getRootBID(),b->getRootPathCost(),b->getSenderBID(),b->getPortId());
 
-			// record the proposed bpdu on this port
-			this->port_status[port].proposed_pr = PriorityVector(b->getRootBID(),b->getRootPathCost(),b->getSenderBID(),b->getPortId());
-
-		} else {
-			EV << "Hold timer active on port " << port << " canceling transmission and enqueuing the BPDU" << endl;
-			this->port_status[port].BPDUQueue.insert(bpdu);
-			return;
-		}
 	} else {
-		// bpdu is an STP broadcast
-		for (int i=0; i<numPorts; ++i) {
-			// send the bpdu only to the designated ports
-			//if (this->port_status[i].role == DESIGNATED_PORT || this->port_status[i].role == ROOT_PORT) {
-			if (this->port_status[i].role == DESIGNATED_PORT) {
-				if (bpdu->getArrivalGate()!=NULL) {
-					if (bpdu->getArrivalGate()->getIndex()==i) {
-						continue;
-					}
-				}
-				BPDU* b = bpdu->dup();
-				b->setPortId(i);
-				// RSTP: set RST BPDU information
-				b->setPortRole(this->port_status[i].role);
-				b->setForwarding(this->port_status[i].state == FORWARDING ? true : false);
-				b->setLearning(this->port_status[i].state == LEARNING ? true : false);
-				// proposing can be a broadcast, but agree is always a sent on a single port
-				if (this->port_status[i].proposing) {
-					b->setProposal(true);
-					b->setAgreement(false);
-					// keep the proposed bpdu on this port
-					this->port_status[i].proposed_pr = PriorityVector(b->getRootBID(),b->getRootPathCost(),b->getSenderBID(),b->getPortId());
-				}
-
-				if (!this->port_status[i].isHoldTimerActive()) {
-
-					EV << "Sending " << bpdu->getName() << " via port " << b->getPortId() << endl;
-					EtherFrame* frame = new EtherFrame(bpdu->getName());
-					frame->setDest(MACRelayUnitSTPNP::STPMCAST_ADDRESS);
-					frame->setSrc(this->bridge_id.address);
-
-					frame->encapsulate(b);
-					send(frame, "lowerLayerOut", i);
-					this->scheduleHoldTimer(i);
-
-				} else {
-					EV << "Hold timer active on port " << i << " canceling transmission and enqueuing the BPDU" << endl;
-					this->port_status[i].BPDUQueue.insert(b);
-				}
-			}
-		}
+		EV << "Hold timer active on port " << port << " canceling transmission and enqueuing the BPDU" << endl;
+		this->port_status[port].BPDUQueue.insert(bpdu);
+		return;
 	}
 	delete bpdu;
 }
@@ -1004,13 +953,63 @@ BPDU* MACRelayUnitSTPNP::getNewBPDU(BPDUType type) {
 	//TODO: set the cost according the link speed
 	bpdu->setRootPathCost(this->priority_vector.root_path_cost+1);
 	bpdu->setSenderBID(this->bridge_id);
-	bpdu->setMessageAge(this->message_age+1);
 	bpdu->setMaxAge(this->max_age_time);
 	bpdu->setHelloTime(this->hello_time);
 	bpdu->setForwardDelay(this->forward_delay);
-	bpdu->setTopologyChangeFlag(false);
+
+	// check if we need to flag the bpdu with the Topology Change flag (only for root bridge)
+	if (this->priority_vector.root_id == this->bridge_id) {
+		if (simTime() < this->topology_change_timeout) {
+			bpdu->setTopologyChangeFlag(true);
+
+			EV << "flagging BPDU with TC flag" << endl;
+		} else {
+			EV << "TC Flag is off" << endl;
+		}
+	}
 
 	return bpdu;
+}
+
+BPDU* MACRelayUnitSTPNP::getNewRSTBPDU(int port) {
+	BPDU* bpdu = this->getNewBPDU(CONF_BPDU);
+	bpdu->setPortId(port);
+
+	if (this->port_status[port].role == ROOT_PORT) {
+		// adjust message age
+		bpdu->setMessageAge(0);
+	} else {
+		bpdu->setMessageAge(this->message_age+1);
+	}
+
+	// RSTP: set proposal flag we are proposing a transition on that port
+	if (this->port_status[port].proposing) {
+		bpdu->setProposal(true);
+		bpdu->setAgreement(false);
+		this->port_status[port].proposed_pr = PriorityVector(bpdu->getRootBID(),bpdu->getRootPathCost(),bpdu->getSenderBID(),bpdu->getPortId());
+	}
+
+	// RSTP: set agreement flag when we are agree (all port synced) with the root bridge info
+	if (this->port_status[port].agree) {
+		bpdu->setProposal(false);
+		bpdu->setAgreement(true);
+		// use the observed_pr on the port to agree the proposal.
+		// root bridge id comes already set from the getNewBPDU method
+		bpdu->setSenderBID(this->port_status[port].observed_pr.bridge_id);
+		bpdu->setPortId(this->port_status[port].observed_pr.port_id);
+		bpdu->setRootPathCost(this->port_status[port].observed_pr.root_path_cost);
+		bpdu->setMessageAge(0);
+	}
+	return bpdu;
+}
+
+
+bool MACRelayUnitSTPNP::isBPDUAged(BPDU* bpdu) {
+	// check the message age limit
+	if (bpdu->getMessageAge() > this->max_age_time) {
+		return true;
+	}
+	return false;
 }
 
 void MACRelayUnitSTPNP::broadcastFrame(EtherFrame *frame, int inputport)
