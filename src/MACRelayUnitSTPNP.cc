@@ -592,6 +592,7 @@ void MACRelayUnitSTPNP::handleSTPBPDUTimeoutTimer(STPBPDUTimeoutTimer* t) {
 	} else {
 		EV << "Port " << port << " losses the BPDU keep alive. port is not alive" << endl;
 		this->port_status[port].alive = false;
+		this->flushMACAddressesOnPort(port);
 	}
 }
 
