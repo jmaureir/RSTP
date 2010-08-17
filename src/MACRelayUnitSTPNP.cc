@@ -75,7 +75,7 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 			this->port_status[port_idx].agreed = false;   // wait to be agreed with the proposal
 			this->port_status[port_idx].agree = false;    // reset this flag
 			this->port_status[port_idx].synced = false;   // wait until we agreed
-			this->port_status[port_idx].proposed_pr = PriorityVector();
+			this->port_status[port_idx].proposed_pr = PriorityVector(this->priority_vector.root_id,this->priority_vector.root_path_cost,this->priority_vector.root_id,this->priority_vector.port_id);
 			this->port_status[port_idx].observed_pr = PriorityVector();
 		}
 
@@ -676,7 +676,7 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 			// arrived bpdu is exactly the same that we have proposed. bpdu should be an agreement and the port should be proposing
 
 			EV << "BPDU agrees the proposal to fast port transition. set the port in FORWARDING state" << endl;
-			this->setPortStatus(arrival_port,PortStatus(FORWARDING,DESIGNATED_PORT));
+			this->setPortStatus(arrival_port,PortStatus(FORWARDING,this->port_status[arrival_port].role));
 		} else {
 			EV << "BPDU informs that is agree and we are not proposing. so, we discard the BPDU and we propose our Root information" << endl;
 			this->port_status[arrival_port].proposing = true;
@@ -755,13 +755,19 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 							if (this->port_status[arrival_port].role==DESIGNATED_PORT) {
 								EV << "Proposing a path to the root bridge" << endl;
 								this->port_status[arrival_port].proposing = true;
+
 								this->sendConfigurationBPDU(arrival_port);
 							} else {
 								EV << "lower priority BPDU arrived in a non designated port. just ignoring it" << endl;
 							}
 						} else {
 							EV << "BPDU informs that this port is an higher cost alternate path to the root. this port is BLOCKED/ALTERNATE_PORT" << endl;
-							this->setPortStatus(arrival_port,PortStatus(BLOCKING,ALTERNATE_PORT));
+							if (this->port_status[arrival_port].proposing) {
+								EV << "proposing our information" << endl;
+								this->sendConfigurationBPDU(arrival_port);
+							} else {
+								this->setPortStatus(arrival_port,PortStatus(BLOCKING,ALTERNATE_PORT));
+							}
 						}
 					}
 				} else {
@@ -785,7 +791,13 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 				// root paths cost and arrived bpdu informs similar costs. analyzing the bridge_ids
 				if (arrived_pr.bridge_id < this->priority_vector.bridge_id && arrived_pr.bridge_id != this->bridge_id) {
 					EV << "BPDU informs an same cost alternate path to the root bridge via a lower priority bridge. Port is BLOCKED/ALTERNATE_PORT" << endl;
-					this->setPortStatus(arrival_port,PortStatus(BLOCKING,ALTERNATE_PORT));
+					if (this->port_status[arrival_port].proposing) {
+						EV << "proposing our information" << endl;
+						this->sendConfigurationBPDU(arrival_port);
+					} else {
+						this->setPortStatus(arrival_port,PortStatus(BLOCKING,ALTERNATE_PORT));
+					}
+
 				} else {
 					if (arrived_pr.bridge_id != this->bridge_id) {
 						// BPDU comes from another bridge
@@ -948,6 +960,7 @@ void MACRelayUnitSTPNP::sendBPDU(BPDU* bpdu,int port) {
 
 		// record the proposed bpdu on this port
 		this->port_status[port].proposed_pr = PriorityVector(b->getRootBID(),b->getRootPathCost(),b->getSenderBID(),b->getPortId());
+		EV << "recording proposed bpdu: " << this->port_status[port].proposed_pr << endl;
 
 	} else {
 		EV << "Hold timer active on port " << port << " canceling transmission and enqueuing the BPDU" << endl;
@@ -1008,6 +1021,7 @@ BPDU* MACRelayUnitSTPNP::getNewRSTBPDU(int port) {
 		bpdu->setProposal(true);
 		bpdu->setAgreement(false);
 		this->port_status[port].proposed_pr = PriorityVector(bpdu->getRootBID(),bpdu->getRootPathCost(),bpdu->getSenderBID(),bpdu->getPortId());
+		EV << "proposed_pr: " << this->port_status[port].proposed_pr << endl;
 	}
 
 	// RSTP: set agreement flag when we are agree (all port synced) with the root bridge info
