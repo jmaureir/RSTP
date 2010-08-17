@@ -65,6 +65,8 @@ bool operator < (MACAddress mac1,MACAddress mac2) {
 
 		if (l1 < l2) {
 			return true;
+		} else if (l1 > l2) {
+			return false;
 		}
 	}
 	return false;
@@ -78,6 +80,8 @@ bool operator > (MACAddress mac1,MACAddress mac2) {
 
 		if (l1 > l2) {
 			return true;
+		} else if (l1 < l2) {
+			return false;
 		}
 	}
 

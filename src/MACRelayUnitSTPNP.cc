@@ -404,7 +404,7 @@ void MACRelayUnitSTPNP::handleMessage(cMessage* msg) {
 	} else {
 		if (this->active) {
 			if (dynamic_cast<EtherFrame*>(msg)) {
-				cPacket* frame = ((EtherFrame*)msg)->getEncapsulatedMsg();
+				cPacket* frame = ((EtherFrame*)msg)->getEncapsulatedPacket();
 				if (dynamic_cast<BPDU*>(frame)) {
 					cPacket* frame = ((EtherFrame*)msg)->decapsulate();
 					BPDU* bpdu = dynamic_cast<BPDU*>(frame);
@@ -740,6 +740,10 @@ void MACRelayUnitSTPNP::handleConfigurationBPDU(CBPDU* bpdu) {
 
 			if (arrived_pr.root_path_cost > this->priority_vector.root_path_cost) {
 				if (arrived_pr.bridge_id != this->bridge_id) {
+
+					//bool bp = arrived_pr.bridge_id < this->bridge_id ;
+
+					//EV << "arrived bid " << arrived_pr.bridge_id << " this bid " << this->bridge_id << " arrived < this ? " << bp << endl;
 
 					if (arrived_pr.bridge_id < this->bridge_id) {
 
