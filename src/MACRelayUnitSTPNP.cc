@@ -20,8 +20,9 @@
 #include "Ethernet.h"
 #include "MACAddress.h"
 
-// Next Day TODO:
-
+// TODO:
+// 1. paint links when changing to forward state. now it only paints blocking links.
+//    and when they turn into forwarding state they remain painted in red.
 // 4. check the TC when topology changes to shorten the MAC aging timers
 //
 
@@ -32,6 +33,7 @@ const MACAddress MACRelayUnitSTPNP::STPMCAST_ADDRESS("01:80:C2:00:00:00");
 MACRelayUnitSTPNP::MACRelayUnitSTPNP() {
 	MACRelayUnitNP::MACRelayUnitNP();
 	this->active = false;
+	this->showInfo = false;
 	this->hello_timer = NULL;
 	this->topology_change_timeout = 0;
 	this->message_age = 0;
@@ -106,7 +108,19 @@ void MACRelayUnitSTPNP::setPortStatus(int port_idx, PortStatus status) {
 		EV << "Port " << port_idx << " change status : " << this->port_status[port_idx] << endl;
 
 		if (status.state == BLOCKING) {
+
+			// color the internal port's link in red
 			this->gate("lowerLayerOut",port_idx)->getDisplayString().setTagArg("ls",0,"red");
+			// color the external port's link in red
+
+			// TODO: make this code safe for unconnected gates
+			cModule* mac = this->gate("lowerLayerOut",port_idx)->getPathEndGate()->getOwnerModule();
+			cGate* outport = mac->gate("phys$o")->getNextGate();
+			outport->getDisplayString().setTagArg("ls",0,"red");
+			cGate* inport = mac->gate("phys$i")->getPreviousGate()->getPreviousGate();
+			inport->getDisplayString().setTagArg("ls",0,"red");
+
+
 			if (this->port_status[port_idx].getForwardTimer()->isScheduled()) {
 				EV << "  Canceling fwd timer" << endl;
 				cancelEvent(this->port_status[port_idx].getForwardTimer());
@@ -239,6 +253,9 @@ void MACRelayUnitSTPNP::setRootPort(int port) {
 	// portRootChange hook
 	this->postRootChange();
 
+	// show pr info
+	this->showPriorityVectorInfo();
+
 	// start proposing our information to all the ports
 	this->sendConfigurationBPDU();
 }
@@ -356,6 +373,8 @@ void MACRelayUnitSTPNP::initialize() {
 	this->edge_delay         = par("portEdgeDelay");
 	this->packet_fwd_limit   = par("packetFwdLimit");
 	this->bpdu_timeout       = par("bpduTimeout");
+
+	this->showInfo           = par("showInfo");
 
 	// capture the original addresses aging time to restore it when
 	// the TCN will change this delay to get a faster renew of the address table.
@@ -1055,3 +1074,19 @@ void MACRelayUnitSTPNP::broadcastFrame(EtherFrame *frame, int inputport)
     delete frame;
 }
 
+void MACRelayUnitSTPNP::showPriorityVectorInfo() {
+
+	if (this->showInfo) {
+		// the bridge/switch module must be the parent.
+		cModule* bridge_module = this->getParentModule();
+
+		if (bridge_module!=NULL) {
+			// provisory: show only the path's cost
+
+			std::stringstream tmp;
+			tmp << this->priority_vector.root_path_cost;
+			bridge_module->getDisplayString().setTagArg("t",0,tmp.str().c_str());
+		}
+	}
+
+}

@@ -1,0 +1,4 @@
+18/08/2010  - then transmitting broadcast on the network and it is not fully converged, some loops
+              are produced (when the topology have loops of course). to avoid this problem, make converge
+              the network first (~ 14 seg) before to send broadcast packets.
+            - timers are not disposed at the end of the simulation.

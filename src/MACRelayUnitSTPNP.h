@@ -262,6 +262,8 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	bool active;                       // Protocol is active
 	bool allSynced;                    // RSTP synced ports to allow fast transitions
 
+	bool showInfo;                     // show priority vector info over the bridge
+
 	// priority vector identifying the root bridge (according 802.1w)
 	PriorityVector priority_vector;
 
@@ -272,6 +274,7 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 	void recordRootTimerDelays(BPDU* bpdu);
 	void setAllPortsStatus(PortStatus status);
 	void setPortStatus(int port_idx, PortStatus status);
+	void showPriorityVectorInfo();
 
 	// Timer functions
 	void scheduleHoldTimer(int port);

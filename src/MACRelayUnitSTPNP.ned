@@ -63,6 +63,8 @@ simple MACRelayUnitSTPNP like MACRelayUnit
                                            
         double powerOn @unit("s") = default(0s);  // Bridge Power on (become active in the network).
         
+        bool showInfo = default(true); // show path cost over each bridge 
+        
         @display("i=block/network2");
         
     gates:
