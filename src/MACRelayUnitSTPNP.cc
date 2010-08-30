@@ -466,7 +466,7 @@ void MACRelayUnitSTPNP::handleIncomingFrame(EtherFrame *msg) {
 				this->sendConfigurationBPDU(outputport);
 				this->port_status[outputport].packet_forwarded = 0;
 			}
-			EV << "Port " << outputport << " forwarded frames " << this->port_status[outputport].packet_forwarded << endl;
+			//EV << "Port " << outputport << " forwarded frames " << this->port_status[outputport].packet_forwarded << endl;
 		}
 		// handle the frame with the legacy method to process it
 		MACRelayUnitNP::handleIncomingFrame(msg);
