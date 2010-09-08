@@ -891,15 +891,20 @@ void MACRelayUnitSTPNP::handleTopologyChangeNotificationBPDU(TCNBPDU* bpdu) {
 
 			if (this->port_status[port].state != BLOCKING) {
 				EV << "TCN arrived on a non-root/non-blocked port. " << endl;
-				EV << "ACK the TCN and forwarding it via the root port" << endl;
+				EV << "ACK the TCN" << endl;
 
 				// ack the TCN
 				this->sendTopologyChangeAckBPDU(port);
-				// forward the TCN via the root port
-				bpdu->setMessageAge(0);
-				bpdu->setSenderBID(this->bridge_id);
-				bpdu->setPortId(this->getRootPort());
-				this->sendBPDU(bpdu,this->getRootPort());
+				if (this->getRootPort()!=-1) {
+					EV << "and forwarding it via the root port" << endl;
+					// forward the TCN via the root port
+					bpdu->setMessageAge(0);
+					bpdu->setSenderBID(this->bridge_id);
+					bpdu->setPortId(this->getRootPort());
+					this->sendBPDU(bpdu,this->getRootPort());
+				} else {
+					EV << "No root port defined. TCN is not forwarded to higher priority bridges" << endl;
+				}
 			} else {
 				EV << "TCN arrived on a non-root/blocked port. discarding it" << endl;
 				delete(bpdu);
