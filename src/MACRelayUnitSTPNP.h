@@ -121,6 +121,10 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 
 		}
 
+		~PortStatus() {
+
+		}
+
 		cMessage* getForwardTimer() {
 			if (this->forward_timer==NULL) {
 				this->forward_timer = new STPForwardTimer("Forward Timer");
@@ -133,6 +137,13 @@ class INET_API MACRelayUnitSTPNP : public MACRelayUnitNP
 			if (this->forward_timer!=NULL) {
 				delete(this->forward_timer);
 				this->forward_timer=NULL;
+			}
+		}
+
+		void clearHoldTimer() {
+			if (this->hold_timer!=NULL) {
+				delete(this->hold_timer);
+				this->hold_timer=NULL;
 			}
 		}
 

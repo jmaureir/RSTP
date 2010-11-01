@@ -40,6 +40,20 @@ MACRelayUnitSTPNP::MACRelayUnitSTPNP() {
 }
 
 MACRelayUnitSTPNP::~MACRelayUnitSTPNP() {
+	for(int i=0;i<this->gateSize("lowerLayerOut");i++) {
+		if (this->port_status[i].isHoldTimerActive()) {
+			cancelEvent(this->port_status[i].getHoldTimer());
+		}
+		this->port_status[i].clearHoldTimer();
+		if (this->port_status[i].getForwardTimer()!=NULL) {
+			delete(this->port_status[i].getForwardTimer());
+		}
+		if (this->port_status[i].getBPDUTimeoutTimer()!=NULL) {
+			cancelEvent(this->port_status[i].getBPDUTimeoutTimer());
+			delete(this->port_status[i].getBPDUTimeoutTimer());
+		}
+
+	}
 
 }
 

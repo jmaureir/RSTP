@@ -45,6 +45,7 @@ INCLUDE_PATH = \
     -Iexamples/reference \
     -Iexamples/reference/results \
     -Iexamples/triangle \
+    -Iexamples/triangle/results \
     -Iexamples/twoSwitch \
     -Isrc
 
@@ -143,6 +144,7 @@ clean:
 	-rm -f examples/reference/*_m.cc examples/reference/*_m.h
 	-rm -f examples/reference/results/*_m.cc examples/reference/results/*_m.h
 	-rm -f examples/triangle/*_m.cc examples/triangle/*_m.h
+	-rm -f examples/triangle/results/*_m.cc examples/triangle/results/*_m.h
 	-rm -f examples/twoSwitch/*_m.cc examples/twoSwitch/*_m.h
 	-rm -f src/*_m.cc src/*_m.h
 
@@ -150,7 +152,7 @@ cleanall: clean
 	-rm -rf $(PROJECT_OUTPUT_DIR)
 
 depend:
-	$(MAKEDEPEND) $(INCLUDE_PATH) -f Makefile -P\$$O/ -- $(MSG_CC_FILES)  ./*.cc examples/*.cc examples/crossed/*.cc examples/crossed/results/*.cc examples/messageAge/*.cc examples/messageAge/results/*.cc examples/redundant/*.cc examples/reference/*.cc examples/reference/results/*.cc examples/triangle/*.cc examples/twoSwitch/*.cc src/*.cc
+	$(MAKEDEPEND) $(INCLUDE_PATH) -f Makefile -P\$$O/ -- $(MSG_CC_FILES)  ./*.cc examples/*.cc examples/crossed/*.cc examples/crossed/results/*.cc examples/messageAge/*.cc examples/messageAge/results/*.cc examples/redundant/*.cc examples/reference/*.cc examples/reference/results/*.cc examples/triangle/*.cc examples/triangle/results/*.cc examples/twoSwitch/*.cc src/*.cc
 
 # DO NOT DELETE THIS LINE -- make depend depends on it.
 $O/src/STPTimers_m.o: src/STPTimers_m.cc \
